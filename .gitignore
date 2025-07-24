@@ -19,3 +19,6 @@ Thumbs.db
 # IDE配置
 .vscode/
 .idea/
+
+#私人信息
+UESTC_AutoConnect_config.ini
