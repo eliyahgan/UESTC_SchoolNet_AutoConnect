@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.venv/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Windows/Mac系统文件
+Thumbs.db
+.DS_Store
+
+# IDE配置
+.vscode/
+.idea/
