@@ -100,8 +100,8 @@ class ConsoleWindow(QWidget):
         # 灰色点击链接
         self.footer_label = QLabel()
         self.footer_label.setText(
-            '<a href="https://github.com/eliyahgan/UESTC_ShoolNet_AutoConnect" style="color:gray; text-decoration:none;">'
-            '主页: https://github.com/eliyahgan/UESTC_ShoolNet_AutoConnect</a>'
+            '<a href="https://github.com/eliyahgan/UESTC_SchoolNet_AutoConnect" style="color:gray; text-decoration:none;">'
+            '主页: https://github.com/eliyahgan/UESTC_SchoolNet_AutoConnect</a>'
         )
         self.footer_label.setOpenExternalLinks(True)
         self.footer_label.setAlignment(Qt.AlignCenter)
@@ -231,8 +231,8 @@ class LoginWindow(QWidget):
         # 可点击链接 label
         self.footer_label = QLabel()
         self.footer_label.setText(
-            '<a href="https://github.com/eliyahgan/UESTC_ShoolNet_AutoConnect" style="color:gray; text-decoration:none;">'
-            '主页: https://github.com/eliyahgan/UESTC_ShoolNet_AutoConnect</a>'
+            '<a href="https://github.com/eliyahgan/UESTC_SchoolNet_AutoConnect" style="color:gray; text-decoration:none;">'
+            '主页: https://github.com/eliyahgan/UESTC_SchoolNet_AutoConnect</a>'
         )
         self.footer_label.setOpenExternalLinks(True)
         self.footer_label.setAlignment(Qt.AlignCenter)
