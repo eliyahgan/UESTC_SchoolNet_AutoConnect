@@ -1,3 +1,4 @@
+# main.py
 import sys
 import os
 import time
@@ -11,8 +12,8 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton,
     QVBoxLayout, QDesktopWidget, QSpacerItem, QSizePolicy, QTextEdit
 )
-from PyQt5.QtGui import QFont, QDesktopServices
-from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal
+from PyQt5.QtGui import QFont, QTextCursor
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 import auto_login
 
@@ -20,17 +21,30 @@ import auto_login
 CONFIG_FILE = "UESTC_AutoConnect_config.ini"
 
 # 全局控制台输出缓存
-console_buffer = deque(maxlen=100)
+console_buffer = deque(maxlen=300)
 console_lock = threading.Lock()
 
 
-# 自定义输出流，用于捕获print输出
+# 自定义输出流（修改：安全 flush，避免 windowed 模式报错）
 class ConsoleCapture(io.StringIO):
     def write(self, text):
-        if text.strip():  # 忽略空行
+        if text.strip():
             with console_lock:
                 console_buffer.append(text.strip())
+        if getattr(sys, "__stdout__", None):
+            try:
+                sys.__stdout__.flush()
+            except Exception:
+                pass
         return super().write(text)
+
+    def flush(self):
+        if getattr(sys, "__stdout__", None):
+            try:
+                sys.__stdout__.flush()
+            except Exception:
+                pass
+        return super().flush()
 
 
 # 重定向标准输出
@@ -39,7 +53,6 @@ sys.stdout = ConsoleCapture()
 
 
 def save_credentials(username, password):
-    # 写入配置文件
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE, encoding="utf-8")
     if "credentials" not in config:
@@ -52,9 +65,7 @@ def save_credentials(username, password):
 
 
 def resource_path(relative_path):
-    """获取资源文件的绝对路径，兼容开发环境和 PyInstaller 打包环境"""
     if hasattr(sys, '_MEIPASS'):
-        # 如果是打包后的exe，从临时目录加载
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
@@ -65,23 +76,20 @@ def on_quit(icon, item):
     threading.Thread(target=lambda: (time.sleep(0.1), sys.exit(0)), daemon=True).start()
 
 
-# 控制台窗口类
 class ConsoleWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("电科校园网自动保持连接 by Eliyah")
         self.resize(600, 400)
         self.center()
-
-        # 主字体设置
+        self.line_count = 0
+        self.max_lines = 100
         self.setFont(QFont("Microsoft YaHei", 10))
 
-        # 主布局
         layout = QVBoxLayout()
         layout.setSpacing(10)
         layout.setContentsMargins(20, 20, 20, 15)
 
-        # 文本区域
         self.text_area = QTextEdit()
         self.text_area.setReadOnly(True)
         self.text_area.setStyleSheet("""
@@ -94,10 +102,6 @@ class ConsoleWindow(QWidget):
         """)
         layout.addWidget(self.text_area)
 
-        # 弹性空白区域
-        # layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
-
-        # 灰色点击链接
         self.footer_label = QLabel()
         self.footer_label.setText(
             '<a href="https://github.com/eliyahgan/UESTC_SchoolNet_AutoConnect" style="color:gray; text-decoration:none;">'
@@ -110,7 +114,6 @@ class ConsoleWindow(QWidget):
 
         self.setLayout(layout)
 
-        # 启动更新线程
         self.update_thread = ConsoleUpdateThread()
         self.update_thread.update_signal.connect(self.update_console)
         self.update_thread.start()
@@ -123,13 +126,30 @@ class ConsoleWindow(QWidget):
 
     def update_console(self, text):
         self.text_area.append(text)
-        # 自动滚动到底部
+        self.line_count += 1
+        if self.line_count > self.max_lines:
+            cursor = self.text_area.textCursor()
+            cursor.movePosition(QTextCursor.Start)
+            cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor)
+            cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
+            cursor.removeSelectedText()
+            cursor.deletePreviousChar()
+            self.line_count = self.max_lines
         cursor = self.text_area.textCursor()
-        cursor.movePosition(cursor.End)
+        cursor.movePosition(QTextCursor.End)
         self.text_area.setTextCursor(cursor)
+        self.text_area.ensureCursorVisible()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(50, self.activateWindow)
+        QTimer.singleShot(100, self.raise_)
+
+    def closeEvent(self, event):
+        event.ignore()
+        self.hide()
 
 
-# 控制台更新线程
 class ConsoleUpdateThread(QThread):
     update_signal = pyqtSignal(str)
 
@@ -139,41 +159,46 @@ class ConsoleUpdateThread(QThread):
 
     def run(self):
         while True:
-            with console_lock:
-                current_size = len(console_buffer)
-                if current_size > self.last_size:
-                    # 发送新的输出内容
-                    for i in range(self.last_size, current_size):
-                        self.update_signal.emit(console_buffer[i])
-                    self.last_size = current_size
-            time.sleep(0.1)  # 100ms更新一次
+            try:
+                with console_lock:
+                    current_size = len(console_buffer)
+                    if current_size > self.last_size:
+                        for i in range(self.last_size, current_size):
+                            self.update_signal.emit(console_buffer[i])
+                        self.last_size = current_size
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"控制台更新线程错误: {e}")
+                time.sleep(1)
 
 
-# 全局控制台窗口实例
 console_window = None
 
 
+# 修改：延迟激活窗口，修复第一次点击无效
 def show_console(icon, item):
     global console_window
     if console_window is None:
         console_window = ConsoleWindow()
-        # 显示历史记录
         with console_lock:
-            for line in console_buffer:
+            buffer_list = list(console_buffer)
+            recent_lines = buffer_list[-100:] if len(buffer_list) > 100 else buffer_list
+            for line in recent_lines:
                 console_window.text_area.append(line)
+                console_window.line_count += 1
     console_window.show()
-    console_window.raise_()  # 将窗口置于前台
+    QTimer.singleShot(50, console_window.activateWindow)
+    QTimer.singleShot(100, console_window.raise_)
 
 
 def create_tray_icon():
-    # 读取图标文件
     icon_path = resource_path("app_icon.ico")
     image = Image.open(icon_path)
     menu = Menu(
         MenuItem('显示控制台', show_console),
         MenuItem('退出', on_quit)
     )
-    icon = Icon("AppName", image, "托盘图标", menu)
+    icon = Icon("AppName", image, "电科校园网自动登录小程序", menu)
     return icon
 
 
@@ -183,27 +208,21 @@ class LoginWindow(QWidget):
         self.setWindowTitle("电科校园网自动保持连接 by Eliyah")
         self.resize(500, 300)
         self.center()
-
-        # 设置整体字体
         self.setFont(QFont("Microsoft YaHei", 10))
 
-        # 主布局
         self.layout = QVBoxLayout()
         self.layout.setSpacing(12)
         self.layout.setContentsMargins(40, 30, 40, 20)
 
-        # 用户名
         self.username_label = QLabel("用户名")
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("请输入校园网账号")
 
-        # 密码
         self.password_label = QLabel("密码")
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.setPlaceholderText("请输入密码")
 
-        # 保存按钮
         self.save_button = QPushButton("保存")
         self.save_button.setStyleSheet("""
             QPushButton {
@@ -218,17 +237,13 @@ class LoginWindow(QWidget):
         """)
         self.save_button.clicked.connect(self.save_credentials)
 
-        # 添加控件到布局
         self.layout.addWidget(self.username_label)
         self.layout.addWidget(self.username_input)
         self.layout.addWidget(self.password_label)
         self.layout.addWidget(self.password_input)
         self.layout.addWidget(self.save_button)
-
-        # 空白弹性区
         self.layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
-        # 可点击链接 label
         self.footer_label = QLabel()
         self.footer_label.setText(
             '<a href="https://github.com/eliyahgan/UESTC_SchoolNet_AutoConnect" style="color:gray; text-decoration:none;">'
@@ -253,6 +268,12 @@ class LoginWindow(QWidget):
         save_credentials(username, password)
         self.close()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(50, self.activateWindow)
+        QTimer.singleShot(100, self.raise_)
+
+
 def check_credentials():
     config = configparser.ConfigParser()
     if os.path.exists(CONFIG_FILE):
@@ -274,10 +295,9 @@ if __name__ == "__main__":
         app.exec_()
     else:
         print("已查询到上次输入的账号")
-    # 启动主功能线程
+    show_console(None, None)
     main_thread = threading.Thread(target=auto_login.main)
-    main_thread.daemon = True  # 设置为守护线程
+    main_thread.daemon = True
     main_thread.start()
-    # 创建并运行托盘图标
     icon = create_tray_icon()
     icon.run()
