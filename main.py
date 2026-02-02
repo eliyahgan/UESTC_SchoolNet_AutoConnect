@@ -10,7 +10,7 @@ from PIL import Image
 from pystray import Icon, MenuItem, Menu
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton,
-    QVBoxLayout, QDesktopWidget, QSpacerItem, QSizePolicy, QTextEdit
+    QVBoxLayout, QDesktopWidget, QSpacerItem, QSizePolicy, QTextEdit, QComboBox
 )
 from PyQt5.QtGui import QFont, QTextCursor
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
@@ -52,13 +52,14 @@ original_stdout = sys.stdout
 sys.stdout = ConsoleCapture()
 
 
-def save_credentials(username, password):
+def save_credentials(username, password, login_mode):
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE, encoding="utf-8")
     if "credentials" not in config:
         config["credentials"] = {}
     config["credentials"]["username"] = username
     config["credentials"]["password"] = password
+    config["credentials"]["login_mode"] = login_mode
     with open(CONFIG_FILE, "w") as f:
         config.write(f)
     print("账号密码保存成功!")
@@ -223,6 +224,11 @@ class LoginWindow(QWidget):
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.setPlaceholderText("请输入密码")
 
+        self.login_mode_label = QLabel("登录方式")
+        self.login_mode_combo = QComboBox()
+        self.login_mode_combo.addItem("移动登录", "@cmcc")
+        self.login_mode_combo.addItem("电信登录", "@dx")
+
         self.save_button = QPushButton("保存")
         self.save_button.setStyleSheet("""
             QPushButton {
@@ -241,6 +247,8 @@ class LoginWindow(QWidget):
         self.layout.addWidget(self.username_input)
         self.layout.addWidget(self.password_label)
         self.layout.addWidget(self.password_input)
+        self.layout.addWidget(self.login_mode_label)
+        self.layout.addWidget(self.login_mode_combo)
         self.layout.addWidget(self.save_button)
         self.layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
@@ -265,7 +273,8 @@ class LoginWindow(QWidget):
     def save_credentials(self):
         username = self.username_input.text()
         password = self.password_input.text()
-        save_credentials(username, password)
+        login_mode = self.login_mode_combo.currentData()
+        save_credentials(username, password, login_mode)
         self.close()
 
     def showEvent(self, event):
@@ -281,13 +290,14 @@ def check_credentials():
         if "credentials" in config:
             username = config.get("credentials", "username", fallback="")
             password = config.get("credentials", "password", fallback="")
-            return username, password
-    return "", ""
+            login_mode = config.get("credentials", "login_mode", fallback="@cmcc")
+            return username, password, login_mode
+    return "", "", "@cmcc"
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    username, password = check_credentials()
+    username, password, login_mode = check_credentials()
     if not username or not password:
         print("第一次使用请输入账号密码")
         window = LoginWindow()

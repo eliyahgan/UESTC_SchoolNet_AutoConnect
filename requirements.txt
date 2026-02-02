@@ -1,0 +1,5 @@
+requests>=2.31
+selenium>=4.6
+pillow>=10.0
+pystray>=0.19
+PyQt5>=5.15

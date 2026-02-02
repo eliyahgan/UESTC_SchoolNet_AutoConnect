@@ -10,7 +10,6 @@ import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.edge.options import Options  # ✅ 改为 EdgeOptions
-from selenium.webdriver.edge.service import Service  # ✅ Edge 驱动服务
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
@@ -19,6 +18,7 @@ from selenium.common.exceptions import TimeoutException
 LOGIN_URL = "http://10.253.0.235/srun_portal_pc?ac_id=3"
 USERNAME = None  # 替换为你的实际用户名
 PASSWORD = None  # 替换为你的实际密码
+LOGIN_MODE = "@cmcc"
 html_opened = False
 html_path = None
 
@@ -40,11 +40,12 @@ def get_credentials():
 
         username = config.get('credentials', 'username')
         password = config.get('credentials', 'password')
+        login_mode = config.get('credentials', 'login_mode', fallback='@cmcc')
 
-        return username, password
+        return username, password, login_mode
     except Exception as e:
         print(f"读取配置文件失败: {e}")
-        return None, None
+        return None, None, '@cmcc'
 
 def auto_login():
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - 尝试登录中。。。")
@@ -57,32 +58,83 @@ def auto_login():
     edge_options.add_argument("--disable-dev-shm-usage")
 
     driver = None
-    try:
-        # 启动 Edge 浏览器并使用本地驱动
-        driver_path = os.path.join(os.path.dirname(__file__), "msedgedriver.exe")  # ✅ 放在项目目录
-        service = Service(executable_path=driver_path)
 
-        driver = webdriver.Edge(service=service, options=edge_options)
-        driver.get(LOGIN_URL)
+    def find_element_with_locators(ctx, locators, timeout=5):
+        for locator in locators:
+            try:
+                return WebDriverWait(ctx, timeout).until(
+                    EC.element_to_be_clickable(locator)
+                )
+            except TimeoutException:
+                continue
+        return None
 
-        wait = WebDriverWait(driver, 10)
+    def try_login_in_context(ctx):
+        username_locators = [
+            (By.ID, "username"),
+            (By.NAME, "username"),
+            (By.ID, "user"),
+            (By.NAME, "user"),
+            (By.ID, "account"),
+        ]
+        password_locators = [
+            (By.ID, "password"),
+            (By.NAME, "password"),
+            (By.ID, "pwd"),
+            (By.NAME, "pwd"),
+            (By.ID, "pass"),
+        ]
+        login_locators = [
+            (By.CSS_SELECTOR, f"button.btn-login.login-domain[mode='{LOGIN_MODE}']"),
+            (By.CSS_SELECTOR, "button.btn-login.login-domain"),
+            (By.ID, "login"),
+            (By.NAME, "login"),
+            (By.ID, "submit"),
+            (By.NAME, "submit"),
+            (By.CSS_SELECTOR, "button[type='submit']"),
+        ]
 
-        username_element = wait.until(
-            EC.element_to_be_clickable((By.ID, "username"))
-        )
+        username_element = find_element_with_locators(ctx, username_locators)
+        password_element = find_element_with_locators(ctx, password_locators)
+        login_button = find_element_with_locators(ctx, login_locators)
+
+        if not username_element or not password_element or not login_button:
+            return False
+
         username_element.clear()
         username_element.send_keys(USERNAME)
 
-        password_element = wait.until(
-            EC.element_to_be_clickable((By.ID, "password"))
-        )
         password_element.clear()
         password_element.send_keys(PASSWORD)
 
-        login_button = wait.until(
-            EC.element_to_be_clickable((By.ID, "login"))
-        )
         login_button.click()
+        return True
+    try:
+        # 启动 Edge 浏览器（Selenium Manager 自动匹配驱动）
+        driver = webdriver.Edge(options=edge_options)
+        driver.get(LOGIN_URL)
+        print(f"登录页URL: {driver.current_url}")
+
+        login_success = try_login_in_context(driver)
+        if not login_success:
+            iframes = driver.find_elements(By.TAG_NAME, "iframe")
+            for frame in iframes:
+                driver.switch_to.frame(frame)
+                if try_login_in_context(driver):
+                    login_success = True
+                    driver.switch_to.default_content()
+                    break
+                driver.switch_to.default_content()
+
+        if not login_success:
+            print("未找到登录表单元素（可能页面结构变更或未正确加载）")
+            try:
+                with open("login_page_dump.html", "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+                print("已保存页面到 login_page_dump.html 以便排查")
+            except Exception:
+                pass
+            return
 
         time.sleep(5)
 
@@ -126,15 +178,35 @@ def request_miui204():
     except Exception as e:
         print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - 检测联网过程出错: {e}")
 
+
+def ensure_driver_downloaded():
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - 初始化 EdgeDriver（Selenium Manager）...")
+    edge_options = Options()
+    edge_options.add_argument("--headless")
+    edge_options.add_argument("--disable-gpu")
+    edge_options.add_argument("--no-sandbox")
+    edge_options.add_argument("--disable-dev-shm-usage")
+    driver = None
+    try:
+        driver = webdriver.Edge(options=edge_options)
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - EdgeDriver 初始化完成")
+    except Exception as e:
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - EdgeDriver 初始化失败: {e}")
+    finally:
+        if driver:
+            driver.quit()
+
 def main():
     print("自动网络监控和登录程序已启动")
     print("每30秒检查网络状态，如果连接失败则尝试登录校园网...")
-    global USERNAME, PASSWORD
-    USERNAME, PASSWORD = get_credentials()
+    global USERNAME, PASSWORD, LOGIN_MODE
+    USERNAME, PASSWORD, LOGIN_MODE = get_credentials()
     if USERNAME and PASSWORD:
         print(f"用户名: {USERNAME}, 密码: {PASSWORD} ")
+        print(f"登录方式: {LOGIN_MODE}")
     else:
         print("未获取到凭据！")
+    ensure_driver_downloaded()
     while True:
         if not request_miui204():
             print("检测到网络断开，尝试登录校园网...")

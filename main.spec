@@ -4,7 +4,7 @@
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[('msedgedriver.exe', '.')],
+    binaries=[],
     datas=[('app_icon.ico', '.')],
     hiddenimports=[],
     hookspath=[],

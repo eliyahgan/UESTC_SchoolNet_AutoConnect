@@ -22,3 +22,9 @@ Thumbs.db
 
 #私人信息
 UESTC_AutoConnect_config.ini
+
+# 调试/临时文件
+login_page_dump.html
+*.log
+msedgedriver.exe
+main.exe
